@@ -40,7 +40,7 @@
             <!-- Deck Size Selector -->
             <div class="mb-4">
                 <label class="block mb-2 font-semibold">Deck Format:</label>
-                <div class="flex gap-4">
+                <div class="flex gap-4 flex-wrap items-center">
                     <button onclick="setDeckSize(40)" id="btn-40" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600">
                         Limited (40)
                     </button>
@@ -50,6 +50,14 @@
                     <button onclick="setDeckSize(99)" id="btn-99" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600">
                         Commander (99)
                     </button>
+                    <div class="flex items-center gap-2">
+                        <span class="text-gray-400">или</span>
+                        <input type="number" id="custom-size" min="30" max="250" 
+                            placeholder="98" 
+                            class="w-20 px-3 py-2 bg-slate-900 rounded border border-slate-700 focus:border-blue-500 focus:outline-none text-center"
+                            onchange="setCustomDeckSize()">
+                        <span class="text-gray-400 text-sm">(партнеры, petitioner, etc.)</span>
+                    </div>
                 </div>
             </div>
 
@@ -157,12 +165,64 @@
 
         function setDeckSize(size) {
             deckSize = size;
+            document.getElementById('custom-size').value = '';
             ['40', '60', '99'].forEach(s => {
                 const btn = document.getElementById(`btn-${s}`);
                 btn.className = s == size 
                     ? 'px-4 py-2 rounded bg-blue-600'
                     : 'px-4 py-2 rounded bg-slate-700 hover:bg-slate-600';
             });
+        }
+
+        function setCustomDeckSize() {
+            const input = document.getElementById('custom-size');
+            const value = parseInt(input.value);
+            if (value >= 30 && value <= 250) {
+                deckSize = value;
+                ['40', '60', '99'].forEach(s => {
+                    document.getElementById(`btn-${s}`).className = 'px-4 py-2 rounded bg-slate-700 hover:bg-slate-600';
+                });
+            } else {
+                alert('Размер колоды должен быть от 30 до 250 карт');
+                input.value = '';
+            }
+        }
+
+        // Interpolate Karsten recommendations for custom deck sizes
+        function getRecommendation(deckSize, turn, pips) {
+            // If exact match exists, use it
+            if (KARSTEN_TABLES[deckSize]) {
+                const table = KARSTEN_TABLES[deckSize][turn];
+                if (pips === 1) return table.single;
+                if (pips === 2) return table.double;
+                if (pips >= 3) return table.triple;
+            }
+
+            // Otherwise interpolate between known sizes
+            let lowerSize, upperSize;
+            if (deckSize <= 40) {
+                return KARSTEN_TABLES[40][turn][pips === 1 ? 'single' : pips === 2 ? 'double' : 'triple'];
+            } else if (deckSize <= 60) {
+                lowerSize = 40;
+                upperSize = 60;
+            } else if (deckSize <= 99) {
+                lowerSize = 60;
+                upperSize = 99;
+            } else {
+                return KARSTEN_TABLES[99][turn][pips === 1 ? 'single' : pips === 2 ? 'double' : 'triple'];
+            }
+
+            const lower = KARSTEN_TABLES[lowerSize][turn];
+            const upper = KARSTEN_TABLES[upperSize][turn];
+            
+            const lowerValue = pips === 1 ? lower.single : pips === 2 ? lower.double : lower.triple;
+            const upperValue = pips === 1 ? upper.single : pips === 2 ? upper.double : upper.triple;
+
+            if (lowerValue === null || upperValue === null) return null;
+
+            // Linear interpolation
+            const ratio = (deckSize - lowerSize) / (upperSize - lowerSize);
+            return Math.round(lowerValue + (upperValue - lowerValue) * ratio);
         }
 
         function loadExample() {
@@ -326,6 +386,13 @@
             const activeColors = Object.values(manaSourcesByColor).filter(v => v > 0).length;
             document.getElementById('colors-count').textContent = activeColors;
 
+            // Show deck size in results
+            const deckSizeNote = deckSize === 40 || deckSize === 60 || deckSize === 99 
+                ? '' 
+                : ` <span class="text-sm text-yellow-400">(using interpolated values for ${deckSize} cards)</span>`;
+            document.getElementById('recommendations').parentElement.querySelector('h2').innerHTML = 
+                `🎨 Mana Source Recommendations (${deckSize} cards)${deckSizeNote}`;
+
             // Build recommendations
             const recommendationsDiv = document.getElementById('recommendations');
             recommendationsDiv.innerHTML = '';
@@ -345,13 +412,9 @@
                 let requirementText = '';
 
                 for (const r of sameColorReqs) {
-                    const table = KARSTEN_TABLES[deckSize][r.turn];
-                    let needed = 0;
-                    if (r.pips === 1) needed = table.single;
-                    else if (r.pips === 2) needed = table.double;
-                    else if (r.pips >= 3) needed = table.triple;
+                    const needed = getRecommendation(deckSize, r.turn, r.pips);
                     
-                    if (needed > maxRequired) {
+                    if (needed && needed > maxRequired) {
                         maxRequired = needed;
                         requirementText = `T${r.turn} ${r.pips === 1 ? '' : r.pips === 2 ? 'double' : 'triple'} (${r.cards[0]})`;
                     }
